@@ -6,15 +6,30 @@ from langgraph.graph import StateGraph, END
 from state import AgentState, MusicProfile, EventInfo
 from tools import search_music_events
 
-load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+load_dotenv(override=True) # override=True forza il ricaricamento dal file .env
+api_key = os.getenv("GROQ_API_KEY")
+
+if not api_key or not api_key.startswith("gsk_"):
+    raise ValueError("ERRORE: Chiave API Groq non trovata o formato non valido nel file .env")
+
+client = Groq(api_key=api_key)
 MODEL = "llama-3.3-70b-versatile"
 
 def parser_node(state):
     msg = state["messages"][-1]
-    prompt = f"Estrai in JSON (genre, artists, location, budget) da: '{msg}'. Rispondi solo JSON."
+    # Prompt migliorato per definire l'utente come FAN (Pag. 270: Query Rewriting)
+    prompt = f"""
+    L'utente è un FAN/ASCOLTATORE di musica. 
+    Analizza il suo messaggio: "{msg}"
+    Estrai in JSON: genre, artists, location, budget.
+    Ignora qualsiasi riferimento a 'fare musica' o 'promuoversi', interpreta tutto come preferenze di ascolto.
+    """
     try:
-        res = client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model=MODEL, response_format={"type": "json_object"})
+        res = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}], 
+            model=MODEL, 
+            response_format={"type": "json_object"}
+        )
         data = json.loads(res.choices[0].message.content)
         if data.get("genre"): state["profile"].genre = data["genre"]
         if data.get("location"): state["profile"].location = data["location"]
@@ -25,25 +40,41 @@ def parser_node(state):
 def responder_node(state):
     p = state["profile"]
     context = "\n".join(state["results"])
-    prompt = f"Sei un orientatore musicale. Basandoti su: {context}, consiglia all'utente ({p.genre} a {p.location}) cosa fare nel 2026. Sii specifico su nomi e date."
+    
+    # Definizione Persona (Pag. 286): L'agente è un ORIENTATORE per FAN.
+    system_persona = """
+    Sei un ORIENTATORE MUSICALE per FAN e ASCOLTATORI. 
+    Il tuo compito è consigliare CONCERTI, ALBUM e ARTISTI da scoprire.
+    NON dare mai consigli su come pubblicizzare musica, come distribuirla o come fare marketing.
+    L'utente vuole solo sapere cosa ascoltare e dove andare a ballare o sentire musica dal vivo.
+    """
+    
+    prompt = f"""
+    {system_persona}
+    Dati i risultati della ricerca: {context}
+    Consiglia all'utente (Fan di {p.genre} a {p.location}) cosa ascoltare o quali eventi vedere nel 2026.
+    """
     res = client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model=MODEL)
     state["final_response"] = res.choices[0].message.content
     return state
 
 def reflection_node(state):
-    res = client.chat.completions.create(messages=[{"role": "user", "content": f"Siamo nel 2026. Correggi date vecchie in: {state['final_response']}"}], model=MODEL)
+    # Nodo di controllo (Pag. 292): Verifica che non ci siano consigli di marketing
+    prompt = f"""
+    Analizza questa risposta: '{state['final_response']}'
+    Se contiene consigli su 'come pubblicizzarsi', 'caricare musica' o 'carriera musicale', 
+    riscrivila completamente focalizzandoti solo su consigli di ASCOLTO e CONCERTI nel 2026.
+    """
+    res = client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model=MODEL)
     state["final_response"] = res.choices[0].message.content
     return state
 
 def action_planner_node(state):
-    prompt = f"Estrai UN evento da creare in calendario (JSON: title, date YYYY-MM-DD, location) da: {state['final_response']}. Se non ci sono eventi chiari, rispondi con JSON vuoto."
+    prompt = f"Estrai UN evento (title, date, location) in JSON da: {state['final_response']}"
     try:
         res = client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model=MODEL, response_format={"type": "json_object"})
         data = json.loads(res.choices[0].message.content)
-        if data.get("title"):
-            state["event_details"] = EventInfo(**data)
-        else:
-            state["event_details"] = None
+        if data.get("title"): state["event_details"] = EventInfo(**data)
     except: state["event_details"] = None
     return state
 

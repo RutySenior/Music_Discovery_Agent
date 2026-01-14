@@ -5,112 +5,116 @@ from icalendar import Calendar, Event
 from datetime import datetime
 import io
 
-st.set_page_config(page_title="Music Agent 2026", layout="centered", page_icon="📅")
+# --- CONFIGURAZIONE PAGINA ---
+st.set_page_config(page_title="Music Agent 2026", layout="wide", page_icon="🎵")
 
-# --- INIEZIONE CSS AGGIORNATO (Migliore Leggibilità) ---
+# --- CSS AD ALTO CONTRASTO (Slide 7: UX/UI Design) ---
 st.markdown("""
     <style>
-    /* Sfondo generale */
-    .stApp {
-        background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+    .stApp { background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%); }
+    .main-title { 
+        font-size: 3rem !important; font-weight: 800; 
+        color: #1DB954; text-align: center; margin-bottom: 20px; 
     }
-    
-    /* Titolo con contrasto elevato */
-    .main-title {
-        font-size: 3rem !important;
-        font-weight: 800;
-        background: -webkit-linear-gradient(#1DB954, #1ed760);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        margin-bottom: 20px;
-    }
-
-    /* FORZATURA COLORE TESTO (Leggibilità Massima) */
-    /* Questo assicura che ogni paragrafo, lista o testo semplice sia bianco */
-    .stApp p, .stApp li, .stApp span, .stApp div {
-        color: #f0f0f0 !important;
+    /* Forza testo bianco per leggibilità (Huyen, Pag. 288) */
+    .stApp p, .stApp li, .stApp span, .stApp div, .stApp label {
+        color: #ffffff !important;
         font-size: 1.05rem;
-        line-height: 1.6;
     }
-
-    /* Box dei messaggi Chat */
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    /* Chat message contrast */
     [data-testid="stChatMessage"] {
         background-color: rgba(255, 255, 255, 0.08) !important;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 15px;
-        padding: 15px;
-        margin-bottom: 15px;
-    }
-
-    /* Sidebar - Testo scuro su sfondo chiaro per contrasto */
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
-        color: #ffffff !important;
-    }
-
-    /* Input Utente */
-    .stChatInputContainer textarea {
-        color: #ffffff !important;
-    }
-    
-    /* Titoli delle sezioni nella chat */
-    h1, h2, h3 {
-        color: #1DB954 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<p class="main-title">🎵 Music Agent Pro</p>', unsafe_allow_html=True)
-
+# --- INIZIALIZZAZIONE MEMORIA (Pag. 301) ---
 if "profile" not in st.session_state: st.session_state.profile = MusicProfile()
 if "chat" not in st.session_state: st.session_state.chat = []
 if "last_event" not in st.session_state: st.session_state.last_event = None
 
-# Visualizzazione Chat
+# --- SIDEBAR DI ISPEZIONE (Slide 7: Trasparenza) ---
+with st.sidebar:
+    st.markdown("## 🧠 Memoria Agente")
+    st.write("Dati estratti dalle tue richieste:")
+    
+    # Visualizziamo il profilo strutturato (Integrità Strutturata)
+    profile_data = st.session_state.profile.model_dump()
+    st.json(profile_data)
+    
+    st.markdown("---")
+    
+    # --- SEZIONE DOWNLOAD CALENDARIO ---
+    if st.session_state.last_event and st.session_state.last_event.title:
+        ev = st.session_state.last_event
+        st.success(f"📅 Evento: {ev.title}")
+        
+        cal = Calendar()
+        cal_event = Event()
+        cal_event.add('summary', ev.title)
+        try:
+            dt = datetime.strptime(ev.date, '%Y-%m-%d')
+            cal_event.add('dtstart', dt)
+        except:
+            cal_event.add('dtstart', datetime(2026, 6, 1))
+        cal_event.add('location', ev.location or "Da definire")
+        cal.add_component(cal_event)
+        
+        st.download_button(
+            label="📥 Scarica Calendario (.ics)",
+            data=cal.to_ical(),
+            file_name="evento_musicale.ics",
+            mime="text/calendar",
+            key="download_ics"
+        )
+    
+    if st.button("Reset Conversazione"):
+        st.session_state.chat = []
+        st.session_state.profile = MusicProfile()
+        st.session_state.last_event = None
+        st.rerun()
+
+# --- AREA PRINCIPALE ---
+st.markdown('<p class="main-title">🎵 Music Orientator Pro</p>', unsafe_allow_html=True)
+
+# Mostra i messaggi della chat
 for m in st.session_state.chat:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-# Input Utente
-if prompt := st.chat_input("Chiedimi di un concerto..."):
+# --- INPUT UTENTE E LOGICA AGENTE ---
+if prompt := st.chat_input("Esempio: Vorrei andare a un concerto Techno a Milano"):
     st.session_state.chat.append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-    inputs = {"messages": [prompt], "profile": st.session_state.profile, "results": [], "final_response": "", "event_details": None}
+    # Preparazione input per il grafo (Huyen Architecture)
+    inputs = {
+        "messages": [prompt], 
+        "profile": st.session_state.profile, 
+        "results": [], 
+        "final_response": "",
+        "event_details": None
+    }
     
-    with st.spinner("L'agente sta lavorando..."):
+    with st.spinner("L'agente sta pianificando ed estraendo informazioni..."):
+        # Esecuzione del Grafo LangGraph
         output = graph.invoke(inputs)
+        
+        # Aggiornamento dello Stato Persistente (Pag. 301)
         st.session_state.profile = output["profile"]
-        response = output["final_response"]
-        # Salviamo l'evento nello stato della sessione per il download
         st.session_state.last_event = output.get("event_details")
+        response = output["final_response"]
 
     with st.chat_message("assistant"):
         st.markdown(response)
     
     st.session_state.chat.append({"role": "assistant", "content": response})
     st.rerun()
-
-# --- SEZIONE DOWNLOAD (Fuori dal blocco input per stabilità) ---
-if st.session_state.last_event and st.session_state.last_event.title:
-    event = st.session_state.last_event
-    st.sidebar.success(f"📅 Evento pronto: {event.title}")
-    
-    cal = Calendar()
-    cal_event = Event()
-    cal_event.add('summary', event.title)
-    try:
-        dt = datetime.strptime(event.date, '%Y-%m-%d')
-        cal_event.add('dtstart', dt)
-    except:
-        cal_event.add('dtstart', datetime(2026, 6, 1))
-    cal_event.add('location', event.location)
-    cal.add_component(cal_event)
-    
-    st.sidebar.download_button(
-        label="📥 Scarica Calendario",
-        data=cal.to_ical(),
-        file_name="concerto.ics",
-        mime="text/calendar",
-        key="download_btn"
-    )
